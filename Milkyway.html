@@ -1,0 +1,755 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>우리 은하 탐험</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Gothic+A1:wght@400;500;700&family=Gowun+Batang:wght@700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* Layout: full-bleed WebGL stage; floating view controls top-left; tool card right (bottom sheet on phones). Deliberately single dark theme: the subject is deep space. */
+:root {
+  --bg: #04060d;
+  --panel: rgba(9, 14, 30, 0.84);
+  --line: rgba(160, 182, 255, 0.2);
+  --text: #e8ecf8;
+  --muted: #98a2c0;
+  --sun: #ffc861;
+  --arm: #9cc2ff;
+  --hii: #ff93b8;
+  --warm: #ffcf94;
+  --measure: #6fd6ff;
+  --font-body: 'Gothic A1', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
+  --font-display: 'Gowun Batang', 'Batang', 'Noto Serif KR', serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  --gl: max(16px, env(safe-area-inset-left, 0px));
+  --gr: max(16px, env(safe-area-inset-right, 0px));
+  --gt: calc(12px + env(safe-area-inset-top, 0px));
+  --gb: calc(12px + env(safe-area-inset-bottom, 0px));
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { height: 100%; overflow: hidden; background: var(--bg); }
+body {
+  height: 100%; margin: 0; overflow: hidden;
+  background: var(--bg); color: var(--text);
+  font: 14px/1.55 var(--font-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  -webkit-font-smoothing: antialiased;
+}
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--arm); outline-offset: 2px; }
+
+.stage { position: fixed; inset: 0; background: var(--bg); }
+#gl { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; outline-offset: -3px; }
+#gl.drag { cursor: grabbing; }
+#labels { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+
+.lbl {
+  position: absolute; left: 0; top: 0; white-space: nowrap;
+  font-size: 13px; line-height: 1.25; padding: 3px 7px;
+  background: rgba(4, 6, 13, 0.6); border-radius: 4px;
+  color: var(--text); pointer-events: none; will-change: transform;
+}
+.lbl.sun { color: var(--sun); font-weight: 700; }
+.lbl.arm { color: var(--arm); }
+.lbl.core { color: var(--warm); }
+.lbl.measure { color: var(--measure); font-weight: 500; }
+.lbl.amber { color: var(--sun); }
+.lbl.ring { font-family: var(--font-mono); font-size: 11px; color: var(--muted); background: transparent; padding: 0 2px; }
+
+.top {
+  position: fixed; left: var(--gl); top: var(--gt);
+  display: flex; flex-direction: column; gap: 10px;
+  width: min(430px, calc(100% - var(--gl) - var(--gr)));
+}
+.eyebrow { font-family: var(--font-mono); font-size: 12px; color: var(--muted); letter-spacing: 0.02em; }
+h1 { margin: 0; font: 700 28px/1.15 var(--font-display); text-wrap: balance; }
+.controls { display: flex; flex-wrap: wrap; gap: 8px; }
+.seg { display: flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel); }
+.seg button { border: 0; background: transparent; padding: 8px 14px; min-height: 40px; color: var(--muted); }
+.seg button + button { border-left: 1px solid var(--line); }
+.seg button[aria-pressed="true"] { background: rgba(156, 194, 255, 0.2); color: var(--text); font-weight: 700; }
+.seg button:hover { color: var(--text); }
+.tool {
+  border: 1px solid var(--line); border-radius: 8px; background: var(--panel);
+  min-height: 40px; min-width: 40px; padding: 0 12px; color: var(--text);
+}
+.tool:hover { border-color: var(--arm); }
+.tool[aria-pressed="true"] { border-color: var(--sun); color: var(--sun); font-weight: 700; }
+.readout {
+  border-left: 2px solid var(--sun); padding: 2px 0 2px 10px;
+  background: linear-gradient(90deg, rgba(4, 6, 13, 0.55), transparent);
+}
+.readout strong { display: block; font-weight: 700; }
+.readout span { color: var(--muted); font-size: 13px; display: block; text-wrap: pretty; }
+.hint { color: var(--muted); font-size: 12px; margin: 0; }
+
+.panel {
+  position: fixed; right: var(--gr); top: var(--gt);
+  width: min(344px, calc(100vw - 32px));
+  max-height: calc(100% - var(--gt) - var(--gb));
+  display: flex; flex-direction: column;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+}
+.panel-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 8px 8px 16px; }
+.panel-head h2 { margin: 0; font-size: 15px; font-weight: 700; }
+.panel[data-open="false"] .panel-body { display: none; }
+.panel-body { overflow-y: auto; padding: 0 16px 16px; overscroll-behavior: contain; }
+.group { padding: 12px 0; border-top: 1px solid var(--line); }
+.group:first-child { border-top: 0; padding-top: 4px; }
+.group h3 { margin: 0 0 8px; font-size: 12px; font-weight: 500; color: var(--muted); letter-spacing: 0.04em; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  border: 1px solid var(--line); border-radius: 6px; background: transparent;
+  color: var(--muted); padding: 6px 10px; min-height: 36px; font-size: 13px;
+}
+.chip i { width: 9px; height: 9px; border-radius: 2px; background: var(--c, var(--arm)); opacity: 0.4; flex: none; }
+.chip[aria-pressed="true"] { color: var(--text); border-color: var(--c, var(--arm)); background: rgba(156, 194, 255, 0.1); }
+.chip[aria-pressed="true"] i { opacity: 1; }
+.slider { display: grid; grid-template-columns: 64px 1fr; align-items: center; gap: 10px; margin-top: 10px; font-size: 13px; color: var(--muted); }
+input[type="range"] { width: 100%; min-width: 0; accent-color: var(--arm); }
+.legend { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 13px; }
+.legend li { display: grid; grid-template-columns: 14px 1fr; gap: 8px; align-items: start; }
+.legend b { width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; background: var(--c); box-shadow: 0 0 8px var(--c); }
+dl { margin: 0; display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; font-size: 13px; }
+dt { color: var(--muted); }
+dd { margin: 0; }
+dd.num { font-family: var(--font-mono); }
+details { font-size: 13px; }
+summary { cursor: pointer; font-weight: 500; min-height: 28px; }
+ol { margin: 6px 0 0; padding-left: 20px; display: grid; gap: 6px; }
+.note { margin: 0; font-size: 12px; color: var(--muted); text-wrap: pretty; }
+
+#nogl[hidden] { display: none; }
+#nogl { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; background: var(--bg); z-index: 5; }
+
+@media (max-width: 720px) {
+  h1 { font-size: 24px; }
+  .panel {
+    left: var(--gl); right: var(--gr); top: auto; bottom: var(--gb);
+    width: auto; max-height: 56%;
+  }
+  .hint { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  * { scroll-behavior: auto !important; }
+}
+</style>
+
+</head>
+<body>
+<div class="stage" id="stage">
+  <canvas id="gl" tabindex="0" aria-label="우리 은하 3D 모형. 드래그해서 돌리고, 휠이나 두 손가락으로 확대와 축소를 할 수 있어요."></canvas>
+  <div id="labels"></div>
+</div>
+
+<div id="nogl" hidden>
+  <p>이 기기에서는 3D 화면(WebGL)을 쓸 수 없어요.<br>다른 브라우저나 기기에서 열어 보세요.</p>
+</div>
+
+<header class="top">
+  <div>
+    <div class="eyebrow">시점 1 · 은하 바깥에서 보기</div>
+    <h1>우리 은하 탐험</h1>
+  </div>
+  <div class="controls">
+    <div class="seg" role="group" aria-label="바라보는 방향">
+      <button type="button" data-view="top" aria-pressed="false">위에서</button>
+      <button type="button" data-view="side" aria-pressed="false">옆에서</button>
+      <button type="button" data-view="oblique" aria-pressed="true">비스듬히</button>
+    </div>
+    <button type="button" class="tool" id="sunView" aria-pressed="false">태양계에서 보기</button>
+    <button type="button" class="tool" id="zoomIn" aria-label="확대">＋</button>
+    <button type="button" class="tool" id="zoomOut" aria-label="축소">－</button>
+    <button type="button" class="tool" id="reset">처음으로</button>
+  </div>
+  <div class="readout" aria-live="polite">
+    <strong id="viewName">비스듬히 본 모습</strong>
+    <span id="viewHint">나선팔과 중심부가 입체적으로 보여요. 화면을 끌어서 돌려 보세요.</span>
+  </div>
+  <p class="hint">끌기: 돌리기 · 휠 또는 두 손가락 벌리기: 확대와 축소 · 두 번 누르기: 처음 시점</p>
+</header>
+
+<aside class="panel" id="panel" data-open="true">
+  <div class="panel-head">
+    <h2>탐구 도구</h2>
+    <button type="button" class="tool" id="panelToggle" aria-expanded="true" aria-controls="panelBody">접기</button>
+  </div>
+  <div class="panel-body" id="panelBody">
+    <section class="group">
+      <h3>보이는 구조 (눌러서 켜고 끄기)</h3>
+      <div class="chips" id="layerChips"></div>
+    </section>
+    <section class="group">
+      <h3>길이 재기</h3>
+      <div class="chips" id="measureChips"></div>
+    </section>
+    <section class="group">
+      <h3>움직임과 밝기</h3>
+      <div class="chips"><button type="button" class="chip" id="spinChip" aria-pressed="true" style="--c: var(--sun)"><i></i>은하 자전 (시계 방향)</button></div>
+      <label class="slider" for="spinSpeed"><span>자전 속도</span><input id="spinSpeed" type="range" min="0" max="4" step="0.25" value="1"></label>
+      <label class="slider" for="gain"><span>밝기</span><input id="gain" type="range" min="0.2" max="2" step="0.05" value="0.6"></label>
+      <p class="note" style="margin-top:10px">실제로는 태양이 은하 중심을 한 바퀴 도는 데 약 2억 3천만 년이 걸려요. 화면에서는 훨씬 빠르게 보여 줘요.</p>
+    </section>
+    <section class="group">
+      <h3>별빛 색깔</h3>
+      <ul class="legend">
+        <li style="--c: #ffcf94"><b></b><span>노란빛 · 나이 많은 별이 많은 중심부</span></li>
+        <li style="--c: #9cc2ff"><b></b><span>푸른빛 · 젊은 별이 많은 나선팔</span></li>
+        <li style="--c: #ff93b8"><b></b><span>분홍빛 · 별이 태어나는 성운</span></li>
+      </ul>
+    </section>
+    <section class="group">
+      <h3>알아두기</h3>
+      <dl>
+        <dt>모양</dt><dd>막대 나선 은하</dd>
+        <dt>지름</dt><dd class="num">약 30 kpc</dd>
+        <dt>중심부 두께</dt><dd class="num">약 1만 광년</dd>
+        <dt>별의 수</dt><dd class="num">약 2000억 개</dd>
+        <dt>태양계 위치</dt><dd>중심에서 약 8.5 kpc, 오리온팔 가까이</dd>
+        <dt>1광년</dt><dd>빛이 1년 동안 가는 거리 (약 9.5조 km)</dd>
+      </dl>
+    </section>
+    <section class="group">
+      <details open>
+        <summary>관찰해 보기</summary>
+        <ol>
+          <li>위에서 볼 때와 옆에서 볼 때 모양은 어떻게 다른가요?</li>
+          <li>옆에서 보면 가운데가 볼록해요. 이 부분을 무엇이라고 부를까요?</li>
+          <li>나선팔은 몇 개로 보이나요? 태양계는 어느 팔 가까이에 있나요?</li>
+          <li>태양계에서 은하 중심까지 거리는 은하 지름의 몇 분의 몇일까요?</li>
+          <li>'태양계에서 보기'를 눌러 보세요. 밤하늘의 은하수는 왜 띠 모양으로 보일까요?</li>
+        </ol>
+      </details>
+    </section>
+    <section class="group">
+      <p class="note">우리는 은하 안에 있어서 바깥에서 찍은 사진은 없어요. 이 모형은 관측 결과를 바탕으로 그린 그림이에요. 나선팔의 개수와 세부 모양은 연구에 따라 조금씩 달라요.</p>
+    </section>
+  </div>
+</aside>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  if (!window.THREE) { $('nogl').hidden = false; return; }
+
+  var stage = $('stage'), canvas = $('gl');
+  var renderer;
+  try {
+    renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, powerPreference: 'high-performance' });
+  } catch (err) { $('nogl').hidden = false; return; }
+  renderer.setClearColor(0x04060d, 1);
+
+  var scene = new THREE.Scene();
+  var camera = new THREE.PerspectiveCamera(45, 1, 0.5, 3000);
+
+  var TAU = Math.PI * 2, D = Math.PI / 180;
+  var reduceMotion = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var isSmall = Math.min(window.innerWidth, window.innerHeight) < 600 || /Mobi|Android/i.test(navigator.userAgent);
+  var Q = isSmall ? 0.55 : 1;
+
+  /* ---------- helpers ---------- */
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = a + 0x6D2B79F5 | 0;
+      var t = Math.imul(a ^ a >>> 15, 1 | a);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+  var rnd = mulberry32(20261108);
+  function gauss() {
+    var u = 0; while (u === 0) u = rnd();
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(TAU * rnd());
+  }
+  function clamp(v, a, b) { return Math.max(a, Math.min(b, v)); }
+  function smooth(a, b, x) { var t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); }
+  function mix(a, b, t) { return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]; }
+  /* seen from above: x to the right, -z up on screen, angle grows counterclockwise */
+  function pol(r, th) { return { x: r * Math.cos(th), z: -r * Math.sin(th) }; }
+
+  /* ---------- star materials ---------- */
+  var VERT = [
+    'attribute vec3 aColor; attribute float aSize;',
+    'uniform float uScale; varying vec3 vColor; varying float vFade;',
+    'void main(){',
+    '  vColor = aColor;',
+    '  vec4 mv = modelViewMatrix * vec4(position, 1.0);',
+    '  float dist = max(-mv.z, 0.001);',
+    '  float px = aSize * uScale / max(dist, 1.0);',
+    '  vFade = clamp(px / 1.6, 0.0, 1.0) * smoothstep(1.5, 7.0, dist);',
+    '  gl_PointSize = clamp(px, 1.6, 64.0);',
+    '  gl_Position = projectionMatrix * mv;',
+    '}'
+  ].join('\n');
+  var starMat = new THREE.ShaderMaterial({
+    uniforms: { uScale: { value: 800 }, uGain: { value: 1 } },
+    vertexShader: VERT,
+    fragmentShader: [
+      'uniform float uGain; varying vec3 vColor; varying float vFade;',
+      'void main(){',
+      '  float d = length(gl_PointCoord - vec2(0.5));',
+      '  if (d > 0.5) discard;',
+      '  float a = 1.0 - d * 2.0; a = a * a;',
+      '  gl_FragColor = vec4(vColor * uGain, a * vFade);',
+      '}'
+    ].join('\n'),
+    transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending
+  });
+  /* dark dust lanes: ordinary alpha blending so they dim the starlight behind them */
+  var dustMat = new THREE.ShaderMaterial({
+    uniforms: { uScale: { value: 800 }, uAlpha: { value: 0.2 } },
+    vertexShader: VERT,
+    fragmentShader: [
+      'uniform float uAlpha; varying vec3 vColor; varying float vFade;',
+      'void main(){',
+      '  float d = length(gl_PointCoord - vec2(0.5));',
+      '  if (d > 0.5) discard;',
+      '  float a = 1.0 - d * 2.0; a = a * a;',
+      '  gl_FragColor = vec4(vColor, a * vFade * uAlpha);',
+      '}'
+    ].join('\n'),
+    transparent: true, depthWrite: false, depthTest: false, blending: THREE.NormalBlending
+  });
+
+  function Cloud() { this.p = []; this.c = []; this.s = []; }
+  Cloud.prototype.add = function (x, y, z, col, k, size) {
+    this.p.push(x, y, z); this.c.push(col[0] * k, col[1] * k, col[2] * k); this.s.push(size);
+  };
+  Cloud.prototype.points = function (mat, order) {
+    var g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(this.p, 3));
+    g.setAttribute('aColor', new THREE.Float32BufferAttribute(this.c, 3));
+    g.setAttribute('aSize', new THREE.Float32BufferAttribute(this.s, 1));
+    var pts = new THREE.Points(g, mat || starMat);
+    pts.frustumCulled = false;
+    pts.renderOrder = order || 0;
+    return pts;
+  };
+
+  /* ---------- galaxy model (1 unit = 1,000 light-years) ----------
+     Shape follows the well-known artist's view from above (north galactic pole):
+     the Sun sits to the left of the center, the bar runs from upper left to lower right,
+     two major arms start at the bar ends, and two fainter arms are shorter. */
+  var WARM = [1.0, 0.80, 0.52], ORANGE = [1.0, 0.66, 0.38], WHITE = [0.96, 0.97, 1.0],
+      BLUE = [0.60, 0.75, 1.0], PINK = [1.0, 0.55, 0.72];
+  var RMAX = 50, R0 = 12, PITCH = 14 * D, B = Math.tan(PITCH), TH_MAX = Math.log(RMAX / R0) / B, TH_MINOR = TAU;
+  var SUN_R = 28, SUN_TH = 180 * D, BAR_TH = 150 * D;
+  var sunP = pol(SUN_R, SUN_TH);
+  var SUN = new THREE.Vector3(sunP.x, 0, sunP.z);
+
+  var ARMS = [
+    { name: '노르마팔', start: 150 * D, w: 1.0, th: TH_MAX, labelR: 20, label: false },
+    { name: '오리온팔', start: 330 * D, w: 1.0, th: TH_MAX, labelR: 42, label: true },
+    { name: '궁수자리팔', start: 60 * D, w: 0.55, th: TH_MINOR, labelR: 28, label: true },
+    { name: '페르세우스팔', start: 240 * D, w: 0.55, th: TH_MINOR, labelR: 44, label: true }
+  ];
+
+  var N = function (n) { return Math.round(n * Q); };
+  /* spread stars along an arm so the outer parts are not much thinner than the inner parts */
+  function pickU(a) { var c = 0.5 * B; return Math.log(1 + rnd() * (Math.exp(c * a.th) - 1)) / c; }
+
+  /* arms: sharp star lanes, wide soft glow, pink star-forming knots, dust on the inner edge */
+  var armC = new Cloud(), dustC = new Cloud();
+  ARMS.forEach(function (a) {
+    function armFade(u) { return (1 - smooth(0.8 * a.th, a.th, u)) * (0.7 + 0.3 * Math.sin(u * 5.3 + a.start * 3)); }
+    var n = N(14000 * a.w), i, u, r0, rr, p, y, fade;
+    for (i = 0; i < n; i++) {
+      u = pickU(a);
+      r0 = R0 * Math.exp(B * u);
+      rr = r0 + gauss() * (1.0 + 0.04 * r0);
+      if (rr > RMAX + 1 || rr < 2) continue;
+      p = pol(rr, a.start + u);
+      y = gauss() * (0.25 + 0.004 * rr);
+      fade = armFade(u);
+      if (rnd() < 0.06) {
+        armC.add(p.x, y, p.z, PINK, 0.55 * fade, 1.3 + rnd() * 0.8);
+      } else {
+        var base = mix(mix(WHITE, WARM, 0.35), BLUE, smooth(8, 26, rr) * (0.6 + 0.4 * rnd()));
+        armC.add(p.x, y, p.z, base, 0.18 * fade * (0.7 + 0.6 * rnd()), 0.8 + rnd() * 0.7);
+      }
+    }
+    var ng = N(12000 * a.w);
+    for (i = 0; i < ng; i++) {
+      u = pickU(a);
+      r0 = R0 * Math.exp(B * u);
+      rr = r0 + gauss() * (3.0 + 0.08 * r0);
+      if (rr > 47 || rr < 3) continue;
+      p = pol(rr, a.start + u);
+      armC.add(p.x, gauss() * (0.5 + 0.006 * rr), p.z, mix(WHITE, BLUE, smooth(8, 28, rr) * 0.8), 0.13 * armFade(u), 2.2 + rnd() * 1.0);
+    }
+    var nu = N(5000 * a.w);
+    for (i = 0; i < nu; i++) {
+      u = pickU(a);
+      r0 = R0 * Math.exp(B * u);
+      rr = r0 * 0.93 + gauss() * (0.35 + 0.01 * r0);
+      if (rr > RMAX || rr < 6) continue;
+      p = pol(rr, a.start + u);
+      dustC.add(p.x, gauss() * 0.15, p.z, [0.02, 0.01, 0.01], armFade(u), 1.2 + rnd() * 0.6);
+    }
+  });
+  /* Orion spur through the Sun */
+  var SP = 12 * D, spurT = new THREE.Vector3(-Math.sin(SP), 0, Math.cos(SP));
+  for (var j = 0, ns = N(600); j < ns; j++) {
+    var s = (rnd() * 2 - 1) * 7, off = gauss() * 1.2;
+    var px = SUN.x + s * spurT.x - off * Math.cos(SP);
+    var pz = SUN.z + s * spurT.z - off * Math.sin(SP);
+    if (rnd() < 0.06) armC.add(px, gauss() * 0.25, pz, PINK, 0.5, 1.2 + rnd() * 0.6);
+    else armC.add(px, gauss() * 0.25, pz, mix(WHITE, BLUE, rnd() * 0.7), 0.2 * (0.7 + 0.6 * rnd()), 0.8 + rnd() * 0.6);
+  }
+
+  /* bulge and bar */
+  var bulgeC = new Cloud();
+  for (var k = 0, nb = N(6000); k < nb; k++) {
+    var bx, by, bz, bl;
+    do { bx = gauss() * 2.4; by = gauss() * 1.9; bz = gauss() * 2.4; bl = Math.sqrt(bx * bx + by * by + bz * bz); } while (bl > 6.5);
+    bulgeC.add(bx, by, bz, mix(WARM, ORANGE, smooth(1, 6, bl)), 0.2, 0.55 + rnd() * 0.3);
+  }
+  var barC = new Cloud();
+  for (var m = 0, nbar = N(5500); m < nbar; m++) {
+    var al = rnd() < 0.6 ? (rnd() * 2 - 1) * 11 : clamp(gauss() * 3.6, -11, 11), wd = gauss() * 1.5;
+    var A = pol(al, BAR_TH), Pp = pol(wd, BAR_TH + Math.PI / 2);
+    barC.add(A.x + Pp.x, gauss() * 0.55, A.z + Pp.z, mix(WARM, ORANGE, rnd() * 0.4), 0.18, 0.7 + rnd() * 0.4);
+  }
+
+  /* halo and globular clusters */
+  var haloC = new Cloud();
+  for (var h = 0, nh = N(5000); h < nh; h++) {
+    var dx = gauss(), dy = gauss(), dz = gauss(), dl = Math.sqrt(dx * dx + dy * dy + dz * dz) || 1;
+    var hr = 3 + 62 * Math.pow(rnd(), 1.7);
+    haloC.add(dx / dl * hr, dy / dl * hr, dz / dl * hr, mix(ORANGE, WARM, rnd()), 0.22, 0.5);
+  }
+  var gcC = new Cloud();
+  for (var g = 0, ng2 = N(130); g < ng2; g++) {
+    var ex = gauss(), ey = gauss(), ez = gauss(), el2 = Math.sqrt(ex * ex + ey * ey + ez * ez) || 1;
+    var gr = 3 + 55 * Math.pow(rnd(), 1.4);
+    gcC.add(ex / el2 * gr, ey / el2 * gr, ez / el2 * gr, [1.0, 0.88, 0.64], 0.6, 1.3 + rnd() * 0.5);
+  }
+  var GC_LABEL = new THREE.Vector3(30, -24, -14);
+  gcC.add(GC_LABEL.x, GC_LABEL.y, GC_LABEL.z, [1.0, 0.9, 0.7], 0.9, 1.9);
+
+  var galaxy = new THREE.Group(), statics = new THREE.Group();
+  scene.add(galaxy); scene.add(statics);
+  var haloPts = haloC.points(starMat, 0), armPts = armC.points(starMat, 1), dustPts = dustC.points(dustMat, 2),
+      bulgePts = bulgeC.points(starMat, 3), barPts = barC.points(starMat, 3), gcPts = gcC.points(starMat, 4);
+  [haloPts, armPts, dustPts, bulgePts, barPts, gcPts].forEach(function (o) { galaxy.add(o); });
+
+  /* Sun marker */
+  var sunC = new Cloud();
+  sunC.add(SUN.x, 0, SUN.z, [1.0, 0.78, 0.38], 0.95, 3.6);
+  sunC.add(SUN.x, 0, SUN.z, [1.0, 0.97, 0.88], 1.0, 1.2);
+  var sunGroup = new THREE.Group();
+  sunGroup.add(sunC.points(starMat, 5));
+  function lineMat(color, op) { return new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: op, depthTest: false }); }
+  function circle(rad, seg, mat) {
+    var pts = [];
+    for (var i = 0; i < seg; i++) { var a = i / seg * TAU; pts.push(new THREE.Vector3(rad * Math.cos(a), 0, rad * Math.sin(a))); }
+    return new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), mat);
+  }
+  var sunRing = circle(1, 48, lineMat(0xffc861, 0.8));
+  sunRing.position.copy(SUN);
+  sunGroup.add(sunRing);
+  galaxy.add(sunGroup);
+
+  /* measuring aids */
+  function segs(arr, color, op) {
+    var g = new THREE.BufferGeometry();
+    g.setAttribute('position', new THREE.Float32BufferAttribute(arr, 3));
+    return new THREE.LineSegments(g, lineMat(color, op));
+  }
+  var diamLine = segs([-50, 0, 0, 50, 0, 0, -50, -1.6, 0, -50, 1.6, 0, 50, -1.6, 0, 50, 1.6, 0], 0x6fd6ff, 0.95);
+  var thickLine = segs([0, -5, 0, 0, 5, 0, -1.3, -5, 0, 1.3, -5, 0, -1.3, 5, 0, 1.3, 5, 0], 0x7fe3b0, 0.95);
+  var sdLine = new THREE.Line(
+    new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), SUN.clone()]),
+    new THREE.LineDashedMaterial({ color: 0xffc861, dashSize: 1, gapSize: 0.7, transparent: true, opacity: 0.95, depthTest: false })
+  );
+  sdLine.computeLineDistances();
+  var ringGroup = new THREE.Group();
+  [10, 20, 30, 40, 50].forEach(function (rad) { ringGroup.add(circle(rad, 160, lineMat(0x7f8fc8, rad === 50 ? 0.5 : 0.22))); });
+  statics.add(diamLine); statics.add(thickLine); statics.add(ringGroup);
+  galaxy.add(sdLine);
+
+  /* ---------- state and toggles ---------- */
+  var S = { arms: true, core: true, halo: true, globular: true, sun: true, names: true,
+            rings: false, diam: false, thick: false, sundist: false };
+  var objs = {
+    arms: [armPts, dustPts], core: [bulgePts, barPts], halo: [haloPts], globular: [gcPts],
+    sun: [sunGroup], rings: [ringGroup], diam: [diamLine], thick: [thickLine], sundist: [sdLine]
+  };
+  function apply() { Object.keys(objs).forEach(function (k) { objs[k].forEach(function (o) { o.visible = !!S[k]; }); }); }
+
+  var LAYER_DEFS = [
+    ['arms', '나선팔', '#9cc2ff'], ['core', '은하 중심부', '#ffcf94'],
+    ['halo', '헤일로', '#ffa86a'], ['globular', '구상 성단', '#ffe2b0'], ['sun', '태양 위치', '#ffc861'], ['names', '이름 표시', '#e8ecf8']
+  ];
+  var MEASURE_DEFS = [
+    ['diam', '지름 30 kpc', '#6fd6ff'], ['thick', '중심부 두께 1만 광년', '#7fe3b0'],
+    ['sundist', '태양~중심 거리', '#ffc861'], ['rings', '거리 눈금', '#7f8fc8']
+  ];
+  function buildChips(box, defs) {
+    defs.forEach(function (d) {
+      var b = document.createElement('button');
+      b.type = 'button'; b.className = 'chip'; b.style.setProperty('--c', d[2]);
+      b.setAttribute('aria-pressed', S[d[0]] ? 'true' : 'false');
+      b.innerHTML = '<i></i>' + d[1];
+      b.addEventListener('click', function () {
+        S[d[0]] = !S[d[0]];
+        b.setAttribute('aria-pressed', S[d[0]] ? 'true' : 'false');
+        apply();
+      });
+      box.appendChild(b);
+    });
+  }
+  buildChips($('layerChips'), LAYER_DEFS);
+  buildChips($('measureChips'), MEASURE_DEFS);
+  apply();
+
+  var spin = !reduceMotion, spinSpeed = 1;
+  var spinChip = $('spinChip');
+  spinChip.setAttribute('aria-pressed', spin ? 'true' : 'false');
+  spinChip.addEventListener('click', function () { spin = !spin; spinChip.setAttribute('aria-pressed', spin ? 'true' : 'false'); });
+  $('spinSpeed').addEventListener('input', function (e) { spinSpeed = parseFloat(e.target.value); });
+  starMat.uniforms.uGain.value = parseFloat($('gain').value);
+  $('gain').addEventListener('input', function (e) { starMat.uniforms.uGain.value = parseFloat(e.target.value); });
+
+  /* ---------- labels ---------- */
+  var labelBox = $('labels'), labels = [], sunE = 0;
+  function addLabel(text, cls, pos, inRot, gate, anchor, hideInSun) {
+    var d = document.createElement('div');
+    d.className = 'lbl ' + cls; d.textContent = text; d.style.display = 'none';
+    labelBox.appendChild(d);
+    labels.push({ el: d, pos: pos, rot: inRot, gate: gate, anchor: anchor, shown: false, hideInSun: !!hideInSun });
+  }
+  addLabel('태양계 (우리 위치)', 'sun', SUN.clone(), true, ['sun'], '14px,-50%', true);
+  addLabel('은하 중심부 (팽대부)', 'core', new THREE.Vector3(0, 0, 0), true, ['core', 'names'], '-50%,20px');
+  ARMS.forEach(function (a) {
+    if (!a.label) return;
+    var th = a.start + Math.log(a.labelR / R0) / B, p = pol(a.labelR, th);
+    addLabel(a.name, 'arm', new THREE.Vector3(p.x, 0, p.z), true, ['arms', 'names'], '-50%,-50%');
+  });
+  addLabel('헤일로', 'core', new THREE.Vector3(-34, 30, 22), false, ['halo', 'names'], '-50%,-50%');
+  addLabel('구상 성단', 'core', GC_LABEL.clone(), true, ['globular', 'names'], '12px,-50%');
+  addLabel('지름 약 30 kpc', 'measure', new THREE.Vector3(24, 0, 0), false, ['diam'], '-50%,-140%');
+  addLabel('중심부 두께 약 1만 광년', 'measure', new THREE.Vector3(0, 5, 0), false, ['thick'], '12px,-50%');
+  addLabel('약 8.5 kpc', 'measure amber', new THREE.Vector3(SUN.x / 2, 0, SUN.z / 2), true, ['sundist'], '-50%,-140%');
+  [['1만', 10], ['2만', 20], ['3만', 30], ['4만', 40], ['반지름 5만 광년', 50]].forEach(function (t) {
+    addLabel(t[0], 'ring', new THREE.Vector3(t[1] * 0.7071, 0, t[1] * 0.7071), false, ['rings'], '6px,-50%');
+  });
+
+  var tmp = new THREE.Vector3();
+  function updateLabels(W, H) {
+    for (var i = 0; i < labels.length; i++) {
+      var l = labels[i], on = !(l.hideInSun && sunE > 0.35);
+      for (var g = 0; on && g < l.gate.length; g++) if (!S[l.gate[g]]) on = false;
+      var visible = false, x = 0, y = 0;
+      if (on) {
+        tmp.copy(l.pos);
+        (l.rot ? galaxy : statics).localToWorld(tmp);
+        tmp.project(camera);
+        x = (tmp.x * 0.5 + 0.5) * W; y = (-tmp.y * 0.5 + 0.5) * H;
+        visible = tmp.z > -1 && tmp.z < 1 && x > -40 && x < W + 40 && y > -20 && y < H + 20;
+      }
+      if (visible) {
+        if (!l.shown) { l.el.style.display = ''; l.shown = true; }
+        l.el.style.transform = 'translate(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px) translate(' + l.anchor + ')';
+      } else if (l.shown) { l.el.style.display = 'none'; l.shown = false; }
+    }
+  }
+
+  /* ---------- camera ----------
+     Two modes blended by sp (0 = outside orbit view, 1 = standing at the Sun).
+     The change between them is animated, never instant. */
+  var EL_MAX = 89 * D, RMIN = 28, RMAX_CAM = 420;
+  var az = 0.5, el = 0.5, R = 150, azT = az, elT = el, RT = R;
+  var FOV_ORBIT = 45, fovS = 72, fovST = 72, yawS = 0, yawST = 0, pitchS = 0, pitchST = 0;
+  var sunT = 0, sp = 0, FLY = reduceMotion ? 1.2 : 4.0;
+  var sunBtn = $('sunView');
+  function fitR() { return Math.min(380, 64 / (Math.tan(FOV_ORBIT * Math.PI / 360) * Math.min(1, camera.aspect))); }
+  function setSun(on) {
+    sunT = on ? 1 : 0;
+    sunBtn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    sunBtn.textContent = on ? '은하 바깥으로 나가기' : '태양계에서 보기';
+    if (on) { yawST = 0; pitchST = 0; fovST = 72; }
+    curKind = '';
+  }
+  function setView(a, e, r) {
+    setSun(false);
+    var d = ((a - az + Math.PI) % TAU + TAU) % TAU - Math.PI;
+    azT = az + d; elT = clamp(e, -EL_MAX, EL_MAX); RT = clamp(r, RMIN, RMAX_CAM);
+  }
+  var VIEWS = {
+    top: function () { setView(0, EL_MAX, fitR() * 0.95); },
+    side: function () { setView(0, 2 * D, fitR() * 0.95); },
+    oblique: function () { setView(0.5, 29 * D, fitR()); }
+  };
+  document.querySelectorAll('[data-view]').forEach(function (b) {
+    b.addEventListener('click', function () { VIEWS[b.getAttribute('data-view')](); });
+  });
+  sunBtn.addEventListener('click', function () { setSun(!sunT); });
+  $('reset').addEventListener('click', VIEWS.oblique);
+  function zoom(f) {
+    if (sunT) fovST = clamp(fovST * f, 25, 90);
+    else RT = clamp(RT * f, RMIN, RMAX_CAM);
+  }
+  $('zoomIn').addEventListener('click', function () { zoom(0.8); });
+  $('zoomOut').addEventListener('click', function () { zoom(1.25); });
+
+  var pointers = new Map(), lastPinch = 0;
+  function pinchDist() {
+    var v = Array.from(pointers.values());
+    return v.length < 2 ? 0 : Math.hypot(v[0].x - v[1].x, v[0].y - v[1].y);
+  }
+  canvas.addEventListener('pointerdown', function (e) {
+    try { canvas.setPointerCapture(e.pointerId); } catch (err) {}
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 2) lastPinch = pinchDist();
+    canvas.classList.add('drag');
+  });
+  canvas.addEventListener('pointermove', function (e) {
+    var p = pointers.get(e.pointerId);
+    if (!p) return;
+    var dx = e.clientX - p.x, dy = e.clientY - p.y;
+    p.x = e.clientX; p.y = e.clientY;
+    if (pointers.size === 1) {
+      if (sunT) {
+        var f = fovST / 72;
+        yawST += dx * 0.0045 * f; pitchST = clamp(pitchST + dy * 0.0045 * f, -80 * D, 80 * D);
+      } else {
+        azT -= dx * 0.0055; elT = clamp(elT + dy * 0.0055, -EL_MAX, EL_MAX);
+      }
+    } else if (pointers.size === 2) {
+      var d = pinchDist();
+      if (lastPinch > 0 && d > 0) zoom(lastPinch / d);
+      lastPinch = d;
+    }
+  });
+  function endPointer(e) {
+    pointers.delete(e.pointerId);
+    if (pointers.size < 2) lastPinch = 0;
+    if (pointers.size === 0) canvas.classList.remove('drag');
+  }
+  canvas.addEventListener('pointerup', endPointer);
+  canvas.addEventListener('pointercancel', endPointer);
+  canvas.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    zoom(Math.exp(e.deltaY * 0.0012));
+  }, { passive: false });
+  canvas.addEventListener('dblclick', VIEWS.oblique);
+  canvas.addEventListener('keydown', function (e) {
+    var used = true;
+    if (e.key === 'ArrowLeft') { if (sunT) yawST += 0.08; else azT += 0.08; }
+    else if (e.key === 'ArrowRight') { if (sunT) yawST -= 0.08; else azT -= 0.08; }
+    else if (e.key === 'ArrowUp') { if (sunT) pitchST = clamp(pitchST + 0.08, -80 * D, 80 * D); else elT = clamp(elT + 0.08, -EL_MAX, EL_MAX); }
+    else if (e.key === 'ArrowDown') { if (sunT) pitchST = clamp(pitchST - 0.08, -80 * D, 80 * D); else elT = clamp(elT - 0.08, -EL_MAX, EL_MAX); }
+    else if (e.key === '+' || e.key === '=') zoom(0.85);
+    else if (e.key === '-') zoom(1.18);
+    else if (e.key === 'Home') VIEWS.oblique();
+    else used = false;
+    if (used) e.preventDefault();
+  });
+
+  /* ---------- readout ---------- */
+  var READ = {
+    top: ['위에서 내려다본 모습', '나선 모양의 팔이 보여요. 가운데에는 막대 모양 구조가 있어요.'],
+    side: ['옆에서 본 모습', '얇게 펼쳐진 나선팔의 한가운데가 볼록하게 부풀어 있어요.'],
+    oblique: ['비스듬히 본 모습', '나선팔과 중심부가 입체적으로 보여요. 화면을 끌어서 돌려 보세요.'],
+    sun: ['태양계에서 본 모습', '은하 중심 쪽을 바라보고 있어요. 화면을 끌어서 둘러보세요. 밤하늘의 은하수가 바로 이 모습이에요.']
+  };
+  var curKind = '';
+  function updateReadout() {
+    var deg = Math.abs(el) / D, kind = sunT ? 'sun' : (deg >= 70 ? 'top' : (deg <= 12 ? 'side' : 'oblique'));
+    if (kind === curKind) return;
+    curKind = kind;
+    $('viewName').textContent = READ[kind][0];
+    $('viewHint').textContent = READ[kind][1];
+    document.querySelectorAll('[data-view]').forEach(function (b) {
+      b.setAttribute('aria-pressed', b.getAttribute('data-view') === kind ? 'true' : 'false');
+    });
+  }
+
+  /* ---------- panel ---------- */
+  var panel = $('panel'), ptoggle = $('panelToggle');
+  function setOpen(open) {
+    panel.setAttribute('data-open', open ? 'true' : 'false');
+    ptoggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+    ptoggle.textContent = open ? '접기' : '펼치기';
+  }
+  ptoggle.addEventListener('click', function () { setOpen(panel.getAttribute('data-open') !== 'true'); });
+  setOpen(!(window.matchMedia && matchMedia('(max-width: 720px)').matches));
+
+  /* ---------- sizing and loop ---------- */
+  var W = 1, H = 1, PR = 1;
+  function updateScale() {
+    var s = H * PR / (2 * Math.tan(camera.fov * Math.PI / 360));
+    starMat.uniforms.uScale.value = s; dustMat.uniforms.uScale.value = s;
+  }
+  function resize() {
+    W = stage.clientWidth || window.innerWidth; H = stage.clientHeight || window.innerHeight;
+    PR = Math.min(window.devicePixelRatio || 1, 2);
+    renderer.setPixelRatio(PR);
+    renderer.setSize(W, H, false);
+    camera.aspect = W / H; camera.updateProjectionMatrix();
+    updateScale();
+  }
+  window.addEventListener('resize', resize);
+  if (window.ResizeObserver) new ResizeObserver(resize).observe(stage);
+  resize();
+  R = RT = fitR();
+
+  var Y = new THREE.Vector3(0, 1, 0), SUN_DIR = SUN.clone().negate().normalize();
+  var posO = new THREE.Vector3(), tmpSun = new THREE.Vector3(), dirL = new THREE.Vector3(),
+      axisV = new THREE.Vector3(), look = new THREE.Vector3(), tgt = new THREE.Vector3();
+  var last = performance.now();
+  function frame(t) {
+    var dt = Math.min(0.05, (t - last) / 1000); last = t;
+    var k = 1 - Math.exp(-dt * 10);
+    az += (azT - az) * k; el += (elT - el) * k; R += (RT - R) * k;
+    yawS += (yawST - yawS) * k; pitchS += (pitchST - pitchS) * k; fovS += (fovST - fovS) * k;
+    if (spin) galaxy.rotation.y -= dt * 0.09 * spinSpeed;
+    galaxy.updateMatrixWorld(true);
+
+    var step = dt / FLY;
+    if (sp < sunT) sp = Math.min(sunT, sp + step); else if (sp > sunT) sp = Math.max(sunT, sp - step);
+    var e = sp * sp * sp * (sp * (sp * 6 - 15) + 10);
+    sunE = e;
+
+    var ce = Math.cos(el), fov = FOV_ORBIT;
+    posO.set(R * ce * Math.sin(az), R * Math.sin(el), R * ce * Math.cos(az));
+    if (e > 0) {
+      tmpSun.copy(SUN); galaxy.localToWorld(tmpSun);
+      dirL.copy(SUN_DIR).applyAxisAngle(Y, yawS);
+      axisV.copy(dirL).cross(Y).normalize();
+      dirL.applyAxisAngle(axisV, pitchS).applyQuaternion(galaxy.quaternion);
+      camera.position.lerpVectors(posO, tmpSun, e);
+      tgt.copy(tmpSun).addScaledVector(dirL, 100);
+      look.set(0, 0, 0).lerp(tgt, e);
+      fov = FOV_ORBIT + (fovS - FOV_ORBIT) * e;
+    } else {
+      camera.position.copy(posO); look.set(0, 0, 0);
+    }
+    if (Math.abs(camera.fov - fov) > 1e-3) { camera.fov = fov; camera.updateProjectionMatrix(); updateScale(); }
+    camera.lookAt(look);
+
+    sunGroup.visible = S.sun && e < 0.35;
+    if (!reduceMotion) {
+      var ph = (t / 1700) % 1, sc = 1.6 + 3 * ph;
+      sunRing.scale.set(sc, sc, sc);
+      sunRing.material.opacity = 0.8 * (1 - ph);
+    }
+    renderer.render(scene, camera);
+    updateLabels(W, H);
+    updateReadout();
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
